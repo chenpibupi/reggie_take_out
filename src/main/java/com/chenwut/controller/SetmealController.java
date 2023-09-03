@@ -14,6 +14,8 @@ import com.chenwut.service.SetmealService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -31,6 +33,7 @@ public class SetmealController {
     @Autowired
     private DishService dishService;
 
+    @CacheEvict(value = "SetmealCache", allEntries = true)
     @PostMapping
     public Result<String> save(@RequestBody SetmealDto setmealDto) {
         log.info("套餐信息：{}", setmealDto);
@@ -66,10 +69,10 @@ public class SetmealController {
         //先根据id把setmealDish表中对应套餐中的菜品数据删了，相当于暂时删除所有这个setmealId对应的数据
         LambdaQueryWrapper<SetmealDish> queryWrapper = new LambdaQueryWrapper<>();
 
-        queryWrapper.eq(SetmealDish::getSetmealId,setmealId);
+        queryWrapper.eq(SetmealDish::getSetmealId, setmealId);
         setmealDishService.remove(queryWrapper);
         //然后在重新添加
-        setmealDishes = setmealDishes.stream().map((item) ->{
+        setmealDishes = setmealDishes.stream().map((item) -> {
             //这属性没有，需要我们手动设置一下
             item.setSetmealId(setmealId);
             return item;
@@ -81,6 +84,7 @@ public class SetmealController {
         return Result.success(setmealDto);
     }
 
+    @CacheEvict(value = "SetmealCache", allEntries = true)
     @DeleteMapping
     public Result<String> deleteByIds(@RequestParam List<Long> ids) {
         log.info("要删除的套餐id为：{}", ids);
@@ -89,6 +93,12 @@ public class SetmealController {
         return Result.success("删除成功");
     }
 
+    /**
+     * 移动端获取套餐信息
+     * @param setmeal
+     * @return
+     */
+    @Cacheable(value = "SetmealCache", key = "#setmeal.categoryId + '_' + #setmeal.status", unless = "#result.data==null")
     @GetMapping("/list")
     public Result<List<Setmeal>> list(Setmeal setmeal) {
         //条件构造器
@@ -113,17 +123,18 @@ public class SetmealController {
         List<DishDto> dtoList = records.stream().map((item) -> {
             DishDto dishDto = new DishDto();
             //copy数据
-            BeanUtils.copyProperties(item,dishDto);
+            BeanUtils.copyProperties(item, dishDto);
             //查询对应菜品id
             Long dishId = item.getDishId();
             //根据菜品id获取具体菜品数据，这里要自动装配 dishService
             Dish dish = dishService.getById(dishId);
             //其实主要数据是要那个图片，不过我们这里多copy一点也没事
-            BeanUtils.copyProperties(dish,dishDto);
+            BeanUtils.copyProperties(dish, dishDto);
             return dishDto;
         }).collect(Collectors.toList());
         return Result.success(dtoList);
     }
+
     @GetMapping("/{id}")
     public Result<SetmealDto> getById(@PathVariable Long id) {
         Setmeal setmeal = setmealService.getById(id);
